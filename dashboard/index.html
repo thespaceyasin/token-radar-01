@@ -21,13 +21,20 @@
 <main>
   <section class="card model" id="model-card">
     <h2>How the radar values a protocol</h2>
-    <p class="formula">implied = TVL × 0.20 × growth × age × chains</p>
+    <p class="formula">implied = TVL × multiple(category) × growth × age × chains</p>
     <dl class="factors">
+      <div><dt>multiple</dt><dd>The category's market multiple — the median market-cap-per-TVL-dollar of live tokens in the same category, shrunk toward the global median (0.17) with a ten-protocol prior, so thin categories stay near the market average. Dexs pay 0.26, Lending 0.15, Basis Trading 0.36.</dd></div>
       <div><dt>growth</dt><dd>1 + 0.5 · tanh(7-day change ÷ 40). Saturates at 0.5–1.5, so one noisy week cannot crown a protocol — and a −70% week costs it nearly half.</dd></div>
       <div><dt>age</dt><dd>0.70 + 0.30 · (1 − e<sup>−days/365</sup>). A protocol that survived years without a token has earned trust; a two-day-old one has not.</dd></div>
       <div><dt>chains</dt><dd>1 + 0.04 per extra chain, at most five. A protocol live on many chains is worth a little more than the same TVL on one.</dd></div>
     </dl>
-    <p class="note">Every factor comes from the snapshot's own figures — TVL, seven-day growth, listing date, chains. No name is ever special-cased. The board ranks <strong>genuine launch candidates only</strong>: pre-token protocols that are not exchanges, bridges, or wrapped/staked products. Those are set aside below, with the reason each was left out. Protocols whose token already trades are shown apart, at their market values — never mixed into the ranking.</p>
+    <p class="note">Every factor comes from the snapshot's own figures — category, TVL, seven-day growth, listing date, chains, and the live market's own market caps. No name is ever special-cased: the same function scores every row, and the multiples below are recomputed from the snapshot on every run. The board ranks <strong>genuine launch candidates only</strong>: pre-token protocols that are not exchanges, bridges, or wrapped/staked products. Those are set aside below, with the reason each was left out. Protocols whose token already trades are shown apart, at their market values — never mixed into the ranking.</p>
+    <h3>Where the multiples come from</h3>
+    <p class="note">Live protocols already have a token, so the market has priced them: their median market-cap-per-TVL-dollar, per category, is the anchor. Thin categories are pulled toward the global median so one wild protocol cannot set a whole category.</p>
+    <div class="tablewrap"><table id="calibration">
+      <thead><tr><th>Category</th><th>Ranked</th><th>Live tokens</th><th>Their median</th><th>Multiple used</th></tr></thead>
+      <tbody id="calibration-rows"></tbody>
+    </table></div>
   </section>
 
   <section class="card controls" aria-label="Board controls">
@@ -44,12 +51,18 @@
     <span class="count" id="count"></span>
   </section>
 
+  <section class="card compare" id="compare" hidden>
+    <h2>Compare <span class="sub" id="compare-sub"></span> <button type="button" id="compare-clear">Clear</button></h2>
+    <div class="compare-grid" id="compare-grid"></div>
+  </section>
+
   <section class="card detail" id="detail" aria-live="polite">
     <p class="placeholder">Select a protocol below to see its full model breakdown and farm plan.</p>
   </section>
 
   <section class="card">
     <h2 id="board-title">The board</h2>
+    <p class="note">Tick two rows to compare them side by side. Every row shows its factor breakdown under the implied value.</p>
     <div class="tablewrap">
       <table id="board">
         <thead><tr>

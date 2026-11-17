@@ -58,10 +58,13 @@ h2 { margin: 0 0 10px; font-size: 17px; letter-spacing: .02em; }
   background: var(--panel2); border: 1px solid var(--line);
   border-radius: 8px; padding: 10px 14px; margin: 0 0 12px;
 }
-.factors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0 0 12px; }
+.factors { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 12px; }
 .factors div { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .factors dt { font-family: var(--mono); color: var(--cyan); font-weight: 700; margin-bottom: 4px; }
 .factors dd { margin: 0; color: var(--muted); font-size: 13.5px; }
+h3 { margin: 14px 0 8px; font-size: 14px; }
+#calibration { font-size: 13.5px; }
+#calibration td.name span { display: block; color: var(--muted); font-size: 12px; white-space: normal; }
 .note { color: var(--muted); font-size: 13.5px; margin: 0; }
 .note strong { color: var(--ink); }
 .controls { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; }
@@ -73,7 +76,7 @@ h2 { margin: 0 0 10px; font-size: 17px; letter-spacing: .02em; }
 .controls input[type="search"] { width: 190px; }
 .controls select#sort { min-width: 205px; }
 #board { table-layout: fixed; }
-#board th:nth-child(1), #board td:nth-child(1) { width: 44px; }
+#board th:nth-child(1), #board td:nth-child(1) { width: 68px; }
 #board th:nth-child(2), #board td:nth-child(2) { width: 250px; }
 #board th:nth-child(3), #board td:nth-child(3) { width: 84px; }
 #board th:nth-child(4), #board td:nth-child(4) { width: 62px; }
@@ -99,11 +102,30 @@ tr.sel td { background: #12283a; }
   color: #06281c; background: var(--green); border-radius: 4px; padding: 1px 6px; margin-left: 6px;
   vertical-align: 1px;
 }
-.up { color: var(--green); }
+.factors-line { display: block; color: var(--muted); font-size: 11px; font-family: var(--mono); margin-top: 2px; white-space: normal; }
+.cmp { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.cmp input { accent-color: var(--cyan); cursor: pointer; }
+.compare h2 .sub { color: var(--muted); font-size: 13px; font-weight: 400; }
+.compare h2 button {
+  margin-left: auto; background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; font-family: var(--sans);
+}
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cmp-card { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.cmp-card h3 { margin: 0 0 6px; font-size: 15px; }
+.cmp-implied { margin: 0 0 10px; font-family: var(--mono); font-size: 17px; }
+.cmp-implied small { display: block; color: var(--muted); font-size: 12px; }
+.cmp-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 0 0 10px; }
+.cmp-facts div { border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.cmp-facts dt { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.cmp-facts dd { margin: 0; font-family: var(--mono); font-size: 13.5px; }
+.cmp-facts dd small { color: var(--muted); font-size: 11px; }
+.cmp-first { margin: 0; font-size: 13px; color: var(--muted); }
+.cmp-first b { color: var(--ink); }
 .down { color: var(--red); }
 .detail h2 { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .detail h2 .sub { color: var(--muted); font-size: 13px; font-weight: 400; }
-.math { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 12px 0; }
+.math { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 12px 0; }
 .math div { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 .math dt { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .math dd { margin: 2px 0 0; font-family: var(--mono); font-size: 15px; }
@@ -126,7 +148,7 @@ tr.sel td { background: #12283a; }
 .placeholder { color: var(--muted); margin: 0; }
 footer { max-width: 1180px; margin: 0 auto; padding: 0 24px 28px; color: var(--muted); font-size: 12.5px; }
 @media (max-width: 760px) {
-  .factors, .math { grid-template-columns: 1fr; }
+  .factors, .math, .compare-grid { grid-template-columns: 1fr; }
   .top { flex-direction: column; }
   .aside { columns: 1; }
 }

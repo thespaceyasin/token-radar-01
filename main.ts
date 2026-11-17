@@ -5,22 +5,27 @@
 // the dossier. No network, no clock, no randomness: two runs write the same
 // bytes.
 //
-// The model, in one line: a protocol's token would be worth a slice of the
-// value it already holds, stretched by how fast that value is growing, how
-// long it has survived without a token, and how many chains it spans.
+// The model, in one line: a protocol's token would be worth the slice of the
+// value it already holds that the market pays for its category, stretched by
+// how fast that value is growing, how long it has survived without a token,
+// and how many chains it spans.
 //
+//   multiple = the category's market multiple, calibrated on the snapshot
+//              itself (see calibrateMultiples below)
 //   growth   = 1 + 0.5 * tanh(clamp(change_7d, -100, 500) / 40)
 //   age      = 0.70 + 0.30 * (1 - exp(-ageDays / 365))
 //   chains   = 1 + 0.04 * min(chains - 1, 5)
-//   implied  = round(tvl_usd * 0.20 * growth * age * chains)
+//   implied  = round(tvl_usd * multiple * growth * age * chains)
 //
-// Why these shapes: the growth factor saturates, so a protocol that printed
-// +4,000% in a week cannot outrank everything on one noisy print, while a
-// -70% week still costs it nearly half; the age factor saturates too, so
-// surviving three tokenless years is worth no more than surviving two; the
-// chain factor is a small diversification bonus, capped at five extra chains.
-// Every factor comes from the snapshot's own figures. No protocol name is
-// ever special-cased: the same function scores every row.
+// Why these shapes: the multiple is what live tokens in the same category
+// actually trade at per dollar of TVL, so a lending protocol and a perp DEX
+// no longer share one flat multiple; the growth factor saturates, so a
+// protocol that printed +4,000% in a week cannot outrank everything on one
+// noisy print, while a -70% week still costs it nearly half; the age factor
+// saturates too, so surviving three tokenless years is worth no more than
+// surviving two; the chain factor is a small diversification bonus, capped
+// at five extra chains. Every factor comes from the snapshot's own figures.
+// No protocol name is ever special-cased: the same function scores every row.
 //
 // The board ranks the eligible pre-token protocols: the watchlist's own rule
 // without its TVL floor. A protocol is eligible when it records no token
@@ -49,7 +54,6 @@ const DAY_MS = 86_400_000;
 
 /** The model's constants, stated in the dashboard so a reader can check them. */
 const MODEL = {
-  base_multiple: 0.2,
   growth_weight: 0.5,
   growth_scale: 40,
   growth_floor: -100,
@@ -59,7 +63,31 @@ const MODEL = {
   unknown_age_days: 365,
   chain_step: 0.04,
   chain_max_bonus: 5,
+  /** The calibration's prior: each category's multiple is pulled toward the global median as if 10 live protocols at the median had been seen. */
+  calibration_prior: 10,
+  /** A category median outside this band is noise from a tiny sample, not a signal. */
+  calibration_median_floor: 0.05,
+  calibration_median_cap: 0.6,
+  /** The multiple itself never leaves this band, whatever the category says. */
+  multiple_floor: 0.08,
+  multiple_cap: 0.45,
 } as const;
+
+/** One calibrated multiple, as the dashboard's calibration table shows it. */
+interface CalibratedMultiple {
+  category: string;
+  eligible: number;
+  live_n: number;
+  live_median: number | null;
+  multiple: number;
+}
+
+/** The calibration: the global median multiple and one row per category. */
+interface Calibration {
+  global_median: number;
+  prior_weight: number;
+  multiples: CalibratedMultiple[];
+}
 
 /** The scorer's own caps, so the program refuses a board the gate refuses. */
 const TEXT_MAX_BYTES = 65_536;
@@ -120,6 +148,7 @@ interface RadarData {
     board_rows: number;
   };
   model: typeof MODEL;
+  calibration: Calibration;
   rows: Array<{
     slug: string;
     name: string;
@@ -131,7 +160,7 @@ interface RadarData {
     watchlist: boolean;
     rank: number;
     implied_value_usd: number;
-    factors: { growth: number; age: number; chains: number };
+    factors: { multiple: number; growth: number; age: number; chains: number };
     farm_steps: FarmStep[];
   }>;
   live: Array<{ slug: string; name: string; category: string | null; mcap_usd: number; symbol: string | null }>;
@@ -200,14 +229,71 @@ function chainFactor(chains: string[]): number {
   return 1 + MODEL.chain_step * Math.min(Math.max(chains.length - 1, 0), MODEL.chain_max_bonus);
 }
 
-/** The implied value, and the three factors that made it, for one protocol. */
-function score(p: SnapshotProtocol): { implied: number; growth: number; age: number; chains: number; ageDays: number } {
+/** The median of a sorted list of numbers. */
+function medianOf(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)]!;
+}
+
+/**
+ * The category multiples, calibrated on the snapshot itself. For every live
+ * protocol — one whose token already trades — the market already priced a
+ * token per dollar of TVL, as mcap_usd / tvl_usd. A category's multiple is
+ * the median of that ratio over its live protocols, clamped to a sane band
+ * (one wild protocol must not set a whole category), then shrunk toward the
+ * global median with a prior of ten protocols: a category with one live
+ * protocol barely moves from the global figure, a category with fifteen
+ * mostly speaks for itself. A category with no live protocol at all takes
+ * the global median. Nothing here names a protocol: the multiples come from
+ * the snapshot's own live market, recomputed on every run.
+ */
+function calibrateMultiples(snapshot: Snapshot, eligible: SnapshotProtocol[]): Calibration {
+  const live = snapshot.protocols.filter((p) => p.mcap_usd !== null && p.tvl_usd > 0);
+  const globalMedian = medianOf(live.map((p) => (p.mcap_usd ?? 0) / p.tvl_usd));
+  const byCategory = new Map<string, number[]>();
+  for (const p of live) {
+    const key = p.category ?? '(uncategorised)';
+    const list = byCategory.get(key) ?? [];
+    list.push((p.mcap_usd ?? 0) / p.tvl_usd);
+    byCategory.set(key, list);
+  }
+  const eligibleCount = new Map<string, number>();
+  for (const p of eligible) {
+    const key = p.category ?? '(uncategorised)';
+    eligibleCount.set(key, (eligibleCount.get(key) ?? 0) + 1);
+  }
+  const multiples: CalibratedMultiple[] = [...eligibleCount.entries()]
+    .map(([category, eligibleN]) => {
+      const sample = byCategory.get(category);
+      const liveMedian = sample === undefined ? null : medianOf(sample);
+      const clamped = liveMedian === null
+        ? globalMedian
+        : Math.min(MODEL.calibration_median_cap, Math.max(MODEL.calibration_median_floor, liveMedian));
+      const n = sample === undefined ? 0 : sample.length;
+      const shrunk = (n * clamped + MODEL.calibration_prior * globalMedian) / (n + MODEL.calibration_prior);
+      const multiple = Math.min(MODEL.multiple_cap, Math.max(MODEL.multiple_floor, shrunk));
+      return { category, eligible: eligibleN, live_n: n, live_median: liveMedian, multiple };
+    })
+    .sort((a, b) => b.eligible - a.eligible || (a.category < b.category ? -1 : 1));
+  return { global_median: globalMedian, prior_weight: MODEL.calibration_prior, multiples };
+}
+
+/** A category's multiple from the calibration; the global median when it has no row. */
+function multipleFor(category: string | null, calibration: Calibration): number {
+  const key = category ?? '(uncategorised)';
+  const row = calibration.multiples.find((m) => m.category === key);
+  return row === undefined ? calibration.global_median : row.multiple;
+}
+
+/** The implied value, and the four factors that made it, for one protocol. */
+function score(p: SnapshotProtocol, calibration: Calibration): { implied: number; multiple: number; growth: number; age: number; chains: number; ageDays: number } {
   const age = ageDays(p);
+  const multiple = multipleFor(p.category, calibration);
   const growth = growthFactor(p.change_7d);
   const ageF = ageFactor(age);
   const chainF = chainFactor(p.chains);
-  const implied = Math.max(1, Math.round(p.tvl_usd * MODEL.base_multiple * growth * ageF * chainF));
-  return { implied, growth, age: ageF, chains: chainF, ageDays: age };
+  const implied = Math.max(1, Math.round(p.tvl_usd * multiple * growth * ageF * chainF));
+  return { implied, multiple, growth, age: ageF, chains: chainF, ageDays: age };
 }
 
 /** Whole dollars, short: 2,757,585,593 -> $2.76B, 48,300,000 -> $48.3M, 950,000 -> $950K. */
@@ -404,6 +490,61 @@ function familySteps(family: string, p: SnapshotProtocol): FarmStep[] {
   }
 }
 
+/** The named risk for a family: the one way this kind of position most often loses money. */
+function riskStep(family: string, p: SnapshotProtocol): FarmStep {
+  const chain = mainChain(p);
+  switch (family) {
+    case 'dex':
+      return {
+        action: `Risk to price in: impermanent loss. If the pool's two assets drift apart while your $500–$2,000 sits in it, the position can come back worth less than holding the assets — check the pool's 30-day range before depositing, and pull out if one side moves more than 25%.`,
+        cost: 'no cost to watch',
+        time: 'check weekly, 5 minutes',
+      };
+    case 'lending':
+      return {
+        action: `Risk to price in: liquidation. If your collateral falls while a loan is open, the protocol sells it at a discount — keep the loan under 40% of the collateral, set a price alert 15% above your liquidation price, and repay early if it trips.`,
+        cost: gasCost(p.chains, 1),
+        time: 'alerts always on',
+      };
+    case 'vault':
+      return {
+        action: `Risk to price in: the vault's strategy, not the protocol's name. A vault that chases the highest yield can hold a token that collapses — read what the vault actually holds on ${chain} before depositing, and prefer the plainest strategy over the highest advertised APY.`,
+        cost: 'no cost to check',
+        time: '30 minutes before depositing',
+      };
+    case 'perps':
+      return {
+        action: `Risk to price in: liquidation and funding. A 3x position is wiped out by a 33% move against you, and funding can bleed a position that stays open for weeks — never hold a leveraged position overnight on ${chain} without a stop in place.`,
+        cost: 'no cost to watch',
+        time: 'check daily while open',
+      };
+    case 'cdp':
+      return {
+        action: `Risk to price in: the minted stablecoin losing its peg. If it trades under $0.98 for more than a day, the debt you owe is worth more than the coins you hold — keep the collateral ratio high enough to repay and exit in one transaction on ${chain}.`,
+        cost: gasCost(p.chains, 1),
+        time: 'check weekly, 5 minutes',
+      };
+    case 'rwa':
+      return {
+        action: `Risk to price in: the issuer, not the chain. A tokenised asset is only as good as the company holding the underlying — check who custodies it, whether redemptions have ever been paused, and never put in more than you can wait months to get back.`,
+        cost: 'no cost to check',
+        time: '1 hour of reading first',
+      };
+    case 'restaking':
+      return {
+        action: `Risk to price in: slashing and lock-ups. A misbehaving operator can cost you part of the stake, and unstaking can take days to weeks — split the stake across two operators on ${chain} and confirm the withdrawal delay before you commit.`,
+        cost: 'no cost to check',
+        time: '30 minutes before staking',
+      };
+    default:
+      return {
+        action: `Risk to price in: the token may never come, and the position can still lose money. Only farm with money you can afford to leave locked for months, and treat every point or promise as worthless until a token actually exists and trades.`,
+        cost: 'no cost to watch',
+        time: 'decide the budget first',
+      };
+  }
+}
+
 /** The full farm plan for one protocol: fund, do the work, stay, track, claim. */
 function farmSteps(p: SnapshotProtocol): FarmStep[] {
   const chain = mainChain(p);
@@ -419,6 +560,7 @@ function farmSteps(p: SnapshotProtocol): FarmStep[] {
       cost: gasCost(p.chains, 4),
       time: '6–10 weeks, weekly rhythm',
     },
+    riskStep(familyOf(p.category), p),
     {
       action: `Watch ${p.name}'s announcements and the snapshot's own figures (TVL ${shortUsd(p.tvl_usd)}, 7-day change ${changeText(p.change_7d)}); if a token or points program is announced, claim inside the window the announcement names.`,
       cost: 'no cost to watch',
@@ -453,9 +595,10 @@ function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: RadarData }
     .map((p) => ({ slug: p.slug, name: p.name, category: p.category, reason: setAsideReason(p) ?? 'set aside' }))
     .sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
 
-  const scored = pretoken
-    .filter((p) => isEligible(p))
-    .map((p) => ({ p, s: score(p) }))
+  const eligible = pretoken.filter((p) => isEligible(p));
+  const calibration = calibrateMultiples(snapshot, eligible);
+  const scored = eligible
+    .map((p) => ({ p, s: score(p, calibration) }))
     .sort((a, b) => (b.s.implied - a.s.implied) || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
 
   const board: BoardRow[] = scored.map(({ p, s }, i) => ({
@@ -477,7 +620,7 @@ function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: RadarData }
     watchlist: watchlist.has(p.slug),
     rank: i + 1,
     implied_value_usd: s.implied,
-    factors: { growth: s.growth, age: s.age, chains: s.chains },
+    factors: { multiple: s.multiple, growth: s.growth, age: s.age, chains: s.chains },
     farm_steps: farmSteps(p),
   }));
 
@@ -495,6 +638,7 @@ function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: RadarData }
       board_rows: board.length,
     },
     model: MODEL,
+    calibration,
     rows,
     live,
     set_aside: setAside,
