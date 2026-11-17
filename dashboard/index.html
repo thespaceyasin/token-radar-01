@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar — pre-token protocols ranked by implied value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="dot" aria-hidden="true"></span>
+    <div>
+      <h1>TOKEN RADAR</h1>
+      <p class="tag">Every protocol without a token, ranked by what its token would be worth.</p>
+    </div>
+  </div>
+  <div class="meta" id="meta"></div>
+</header>
+
+<main>
+  <section class="card model" id="model-card">
+    <h2>How the radar values a protocol</h2>
+    <p class="formula">implied = TVL × 0.20 × growth × age × chains</p>
+    <dl class="factors">
+      <div><dt>growth</dt><dd>1 + 0.5 · tanh(7-day change ÷ 40). Saturates at 0.5–1.5, so one noisy week cannot crown a protocol — and a −70% week costs it nearly half.</dd></div>
+      <div><dt>age</dt><dd>0.70 + 0.30 · (1 − e<sup>−days/365</sup>). A protocol that survived years without a token has earned trust; a two-day-old one has not.</dd></div>
+      <div><dt>chains</dt><dd>1 + 0.04 per extra chain, at most five. A protocol live on many chains is worth a little more than the same TVL on one.</dd></div>
+    </dl>
+    <p class="note">Every factor comes from the snapshot's own figures — TVL, seven-day growth, listing date, chains. No name is ever special-cased. The board ranks <strong>genuine launch candidates only</strong>: pre-token protocols that are not exchanges, bridges, or wrapped/staked products. Those are set aside below, with the reason each was left out. Protocols whose token already trades are shown apart, at their market values — never mixed into the ranking.</p>
+  </section>
+
+  <section class="card controls" aria-label="Board controls">
+    <label>Search <input id="q" type="search" placeholder="name or slug…" autocomplete="off"></label>
+    <label>Category <select id="cat"><option value="">All categories</option></select></label>
+    <label>Chain <select id="chain"><option value="">All chains</option></select></label>
+    <label>Sort <select id="sort">
+      <option value="implied">Implied value ↓</option>
+      <option value="tvl">TVL ↓</option>
+      <option value="growth">7-day growth ↓</option>
+      <option value="age">Age ↓</option>
+    </select></label>
+    <label class="check"><input id="wl" type="checkbox"> Watchlist only</label>
+    <span class="count" id="count"></span>
+  </section>
+
+  <section class="card detail" id="detail" aria-live="polite">
+    <p class="placeholder">Select a protocol below to see its full model breakdown and farm plan.</p>
+  </section>
+
+  <section class="card">
+    <h2 id="board-title">The board</h2>
+    <div class="tablewrap">
+      <table id="board">
+        <thead><tr>
+          <th data-k="rank">#</th>
+          <th data-k="name">Protocol</th>
+          <th data-k="tvl">TVL</th>
+          <th data-k="growth">7d</th>
+          <th data-k="age">Age</th>
+          <th data-k="implied">Implied value</th>
+          <th>Farm first step</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Already trading — not ranked</h2>
+    <p class="note">These protocols record a token, so they are not launch candidates. The twenty largest by market cap, for reference, at the values the market already gives them.</p>
+    <div class="tablewrap">
+      <table id="live">
+        <thead><tr><th>Protocol</th><th>Category</th><th>Market cap</th></tr></thead>
+        <tbody id="live-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Set aside — and why</h2>
+    <p class="note" id="aside-note"></p>
+    <ul class="aside" id="aside-list"></ul>
+  </section>
+</main>
+
+<footer>
+  <p>Snapshot: DefiLlama, <span id="asof"></span>. Implied values are this entry's own claim, never a prediction that a token will be issued or when. Farm plans are guidance, not financial advice — a token may never come, and a position can lose money.</p>
+</footer>
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
